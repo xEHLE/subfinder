@@ -10,10 +10,11 @@ import (
 )
 
 type BaseSource struct {
-	CreateTask  func(domain string) core.Task
-	Keys        []string
-	RequiresKey bool   // Requires keys
-	Name        string // Source Name
+	Keys          []string
+	RequiresKey   bool   // Requires keys
+	Name          string // Source Name
+	CreateTask    func(domain string) core.Task
+	ProcessSearch func(ch chan string) []core.Task
 }
 
 // Source Daemon

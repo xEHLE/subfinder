@@ -19,7 +19,7 @@ import (
 const CSRFSubMatchLength = 2
 
 // wait until all tasks start subtasks if any
-var wg *sync.WaitGroup = &sync.WaitGroup{}
+var srcgrp *sync.WaitGroup = &sync.WaitGroup{}
 
 var re = regexp.MustCompile("<input type=\"hidden\" name=\"csrfmiddlewaretoken\" value=\"(.*)\">")
 
@@ -79,7 +79,7 @@ type Source struct {
 func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
 	s.BaseSource.Name = s.Name()
 	s.init()
-	s.BaseSource.Daemon(ctx, e, wg, input, output)
+	s.BaseSource.Daemon(ctx, e, srcgrp, input, output)
 }
 
 // inits the source before passing to daemon
@@ -90,7 +90,7 @@ func (s *Source) init() {
 
 // Run function returns all subdomains found with the service
 func (s *Source) dispatcher(domain string) core.Task {
-	wg.Add(1)
+	srcgrp.Add(1)
 	task := core.Task{
 		Domain: domain,
 	}
@@ -102,7 +102,6 @@ func (s *Source) dispatcher(domain string) core.Task {
 
 	task.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {
 		defer resp.Body.Close()
-		defer wg.Done()
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return err
@@ -115,6 +114,10 @@ func (s *Source) dispatcher(domain string) core.Task {
 			executor.Task <- postForm(domain, csrfToken)
 			return nil
 		}
+	}
+
+	task.Cleanup = func() {
+		srcgrp.Done()
 	}
 	return task
 }

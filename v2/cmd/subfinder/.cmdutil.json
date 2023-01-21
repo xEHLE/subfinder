@@ -1,0 +1,49 @@
+{
+  "saves": [
+    {
+      "Command": "subfinder -dL targets/target_1.txt -s waybackarchive,anubis,alienvault,crtsh,dnsdumpster -v -timeout 300 -max-time 15",
+      "Max RSS": "20",
+      "Sys Time": "174.054µs",
+      "User Time": "173.114µs",
+      "Actual Time": "3.309104333s",
+      "Context Switch": "9",
+      "Timestamp": "Mon Jan  9 18:30:56 IST 2023"
+    },
+    {
+      "Command": "subfinder -dL targets/target_5.txt -s waybackarchive,anubis,alienvault,crtsh,dnsdumpster -v -timeout 300 -max-time 15",
+      "Max RSS": "20",
+      "Sys Time": "539.608µs",
+      "User Time": "313.303µs",
+      "Actual Time": "3m23.8695075s",
+      "Context Switch": "15",
+      "Timestamp": "Mon Jan  9 18:34:20 IST 2023"
+    },
+    {
+      "Command": "subfinder -dL targets/target_10.txt -s waybackarchive,anubis,alienvault,crtsh,dnsdumpster -v -timeout 300 -max-time 15",
+      "Max RSS": "24",
+      "Sys Time": "635.198µs",
+      "User Time": "529.216µs",
+      "Actual Time": "3m52.247739625s",
+      "Context Switch": "333",
+      "Timestamp": "Mon Jan  9 18:38:12 IST 2023"
+    },
+    {
+      "Command": "subfinder -dL targets/target_25.txt -s waybackarchive,anubis,alienvault,crtsh,dnsdumpster -v -timeout 300 -max-time 15",
+      "Max RSS": "25",
+      "Sys Time": "16.622µs",
+      "User Time": "726.751µs",
+      "Actual Time": "6m19.204763041s",
+      "Context Switch": "508",
+      "Timestamp": "Mon Jan  9 18:44:31 IST 2023"
+    },
+    {
+      "Command": "subfinder -dL targets/target_50.txt -s waybackarchive,anubis,alienvault,crtsh,dnsdumpster -v -timeout 300 -max-time 15",
+      "Max RSS": "38",
+      "Sys Time": "990.829µs",
+      "User Time": "940.822µs",
+      "Actual Time": "22m36.444342042s",
+      "Context Switch": "1271",
+      "Timestamp": "Mon Jan  9 19:07:08 IST 2023"
+    }
+  ]
+}

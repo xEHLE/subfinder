@@ -64,6 +64,9 @@ var DefaultRateLimits map[string]SourceRateLimit = map[string]SourceRateLimit{
 	"crt.sh": {
 		MaxCount: 60, Duration: time.Minute,
 	},
+	"dnsdumpster": {
+		MaxCount: 2, Duration: time.Second, // also has a Daily Limit Per IP address
+	},
 }
 
 // SourceRateLimit contains rate limit of a particular source

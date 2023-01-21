@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -13,8 +14,10 @@ type Task struct {
 	Metdata     any                                                          // Optional metdata
 	ExecTime    time.Duration                                                // Time taken to execute this task
 	RequestOpts *Options                                                     // Request Options
+	PreRun      func()                                                       // PreRun
 	Override    func(t *Task, ctx context.Context, executor *Executor) error // Override ignores defined execution methodology and executes task if err is not nil default is executed
 	OnResponse  func(t *Task, resp *http.Response, executor *Executor) error // On Response
+	Cleanup     func()                                                       // Any CleanUp if necessary executed using defer
 }
 
 // Executes given task
@@ -22,6 +25,11 @@ func (t *Task) Execute(ctx context.Context, e *Executor) {
 	defer func(start time.Time) {
 		t.ExecTime = time.Since(start)
 	}(time.Now())
+
+	if t.PreRun != nil {
+		t.PreRun()
+		log.Println("executed prerun")
+	}
 
 	if t.Override != nil {
 		err := t.Override(t, ctx, e)
@@ -43,6 +51,12 @@ func (t *Task) Execute(ctx context.Context, e *Executor) {
 		e.Result <- Result{
 			Source: t.RequestOpts.Source, Type: Error, Error: err,
 		}
+	}
+
+	if t.Cleanup != nil {
+		log.Println("calling cleanup")
+		t.Cleanup()
+		log.Println("done cleanup")
 	}
 }
 

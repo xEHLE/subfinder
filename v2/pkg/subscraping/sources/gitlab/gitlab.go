@@ -15,6 +15,9 @@ import (
 	"github.com/tomnomnom/linkheader"
 )
 
+// waitgroup
+var taskgrp *sync.WaitGroup = &sync.WaitGroup{}
+
 // Source is the passive scraping agent
 type Source struct {
 	subscraping.BaseSource
@@ -31,7 +34,7 @@ type item struct {
 func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
 	s.BaseSource.Name = s.Name()
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, taskgrp, input, output)
 }
 
 // inits the source before passing to daemon
@@ -45,6 +48,12 @@ func (s *Source) dispatcher(domain string) core.Task {
 		Domain: domain,
 	}
 	randomApiKey := s.GetRandomKey()
+	taskgrp.Add(1)
+
+	task.Cleanup = func() {
+		defer taskgrp.Done()
+	}
+
 	task.RequestOpts = &core.Options{
 		Method:  http.MethodGet,
 		URL:     fmt.Sprintf("https://gitlab.com/api/v4/search?scope=blobs&search=%s&per_page=100", domain),
@@ -61,8 +70,10 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return err
 		}
 		if len(items) > 0 {
+			taskgrp.Add(1)
 			core.Dispatch(func(wg *sync.WaitGroup) {
 				defer wg.Done()
+				defer taskgrp.Done()
 				for _, v := range items {
 					executor.Task <- s.fetchRepoPage(v, t.Domain)
 				}
