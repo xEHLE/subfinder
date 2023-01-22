@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/subfinder/v2/pkg/channelutil"
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 	"golang.org/x/exp/maps"
 )
@@ -19,13 +19,12 @@ type Agent struct {
 	InputChan chan string
 	TaskChan  chan core.Task
 	// Internal waitgroup
-	srcgrp sync.WaitGroup
 	joined channelutil.JoinChannels[core.Task]
 	split  channelutil.SplitChannels[string]
 }
 
 // StartAll starts all sources in background(like a daemon)
-func (a *Agent) StartAll(ctx context.Context, e *core.Extractor) error {
+func (a *Agent) StartAll(ctx context.Context, e *session.Extractor) error {
 	inputChans := []chan string{}
 	taskchans := []chan core.Task{}
 	for i := 0; i < len(a.sources); i++ {
@@ -73,6 +72,9 @@ func (a *Agent) Wait() {
 // New creates a new agent for passive subdomain discovery
 func New(sourceNames, excludedSourceNames []string, useAllSources, useSourcesSupportingRecurse bool) *Agent {
 	sources := make(map[string]subscraping.Source)
+	for k := range NameSourceMap {
+		fmt.Println(k)
+	}
 
 	if useAllSources {
 		maps.Copy(sources, NameSourceMap)
@@ -106,7 +108,20 @@ func New(sourceNames, excludedSourceNames []string, useAllSources, useSourcesSup
 			}
 		}
 	}
+
+	// Validate if keys are available
+	for k, v := range sources {
+		if v.MissingKeys() {
+			gologger.Debug().Msgf("Missing API key(s) for %v. Skipping", v.Name())
+			delete(sources, k)
+		}
+	}
+
 	gologger.Debug().Msgf(fmt.Sprintf("Selected source(s) for this search: %s", strings.Join(maps.Keys(sources), ", ")))
+
+	if len(sources) == 0 {
+		gologger.Fatal().Msgf("No sources to select")
+	}
 
 	// Create the agent, insert the sources and remove the excluded sources
 	agent := &Agent{sources: maps.Values(sources)}

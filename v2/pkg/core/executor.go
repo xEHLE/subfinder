@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"sync"
+
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 )
 
 // internal waitgroup for workers
@@ -23,8 +25,8 @@ type Executor struct {
 	Result    chan Result
 	Task      chan Task
 	MaxTasks  int
-	Session   *Session
-	Extractor *Extractor
+	Session   *session.Session
+	Extractor *session.Extractor
 }
 
 // Create Worker Goroutines
@@ -64,8 +66,8 @@ func NewExecutor(cfg *Config, taskchan chan Task) *Executor {
 		Task:      taskchan,
 		Result:    make(chan Result, 10),
 		MaxTasks:  cfg.MaxTasks,
-		Extractor: NewExtractor(),
-		Session:   NewSession(cfg.Proxy, cfg.RateLimit, cfg.Timeout),
+		Extractor: session.NewExtractor(),
+		Session:   session.NewSession(cfg.Proxy, cfg.RateLimit, cfg.Timeout),
 	}
 	return &exec
 }

@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
@@ -27,14 +27,16 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "zoomeyeapi"
+	s.BaseSource.Default = false
+	s.BaseSource.Recursive = false
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -52,7 +54,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	}
 	currentPage := 1
 	api := fmt.Sprintf("https://api.zoomeye.org/domain/search?q=%s&type=1&s=1000&page=%d", domain, currentPage)
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodGet,
 		URL:     api,
 		Headers: headers,
@@ -72,38 +74,15 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		pages := int(res.Total/1000) + 1
 		if pages > 1 {
-			core.Dispatch(func(wg *sync.WaitGroup) {
-				defer wg.Done()
-				for i := 2; i < pages; i++ {
-					tx := t.Clone()
-					tx.RequestOpts.Headers["API-KEY"] = s.GetRandomKey()
-					tx.RequestOpts.URL = fmt.Sprintf("https://api.zoomeye.org/domain/search?q=%s&type=1&s=1000&page=%d", domain, i)
-					executor.Task <- *tx
-				}
-			})
+			for i := 2; i < pages; i++ {
+				tx := t.Clone()
+				tx.RequestOpts.Headers["API-KEY"] = s.GetRandomKey()
+				tx.RequestOpts.URL = fmt.Sprintf("https://api.zoomeye.org/domain/search?q=%s&type=1&s=1000&page=%d", domain, i)
+				executor.Task <- *tx
+			}
 		}
 		return nil
 	}
+	task.HasSubtasks = true
 	return task
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "zoomeyeapi"
-}
-
-func (s *Source) IsDefault() bool {
-	return false
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return false
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.AddKeys(keys...)
 }

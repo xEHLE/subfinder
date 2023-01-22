@@ -55,7 +55,7 @@ func UnmarshalFrom(file string) error {
 		apiKeys := sourceApiKeysMap[sourceName]
 		if source.NeedsKey() && apiKeys != nil && len(apiKeys) > 0 {
 			gologger.Debug().Msgf("API key(s) found for %s.", sourceName)
-			source.AddApiKeys(apiKeys)
+			source.AddKeys(apiKeys...)
 		}
 	}
 	return err

@@ -9,17 +9,14 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
 // CSRFSubMatchLength CSRF regex submatch length
 const CSRFSubMatchLength = 2
-
-// wait until all tasks start subtasks if any
-var srcgrp *sync.WaitGroup = &sync.WaitGroup{}
 
 var re = regexp.MustCompile("<input type=\"hidden\" name=\"csrfmiddlewaretoken\" value=\"(.*)\">")
 
@@ -41,7 +38,7 @@ func postForm(domain string, token string) core.Task {
 		"targetip":            {domain},
 		"user":                {"free"},
 	}
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodPost,
 		URL:     "https://dnsdumpster.com/",
 		Cookies: fmt.Sprintf("csrftoken=%s; Domain=dnsdumpster.com", token),
@@ -51,7 +48,7 @@ func postForm(domain string, token string) core.Task {
 			"X-CSRF-Token": token,
 		},
 		Body:      strings.NewReader(params.Encode()),
-		BasicAuth: core.BasicAuth{},
+		BasicAuth: session.BasicAuth{},
 		Source:    "dnsdumpster",
 	}
 
@@ -76,26 +73,27 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, srcgrp, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "dnsdumpster"
+	s.BaseSource.Default = true
+	s.BaseSource.Recursive = true
 	s.BaseSource.RequiresKey = false
 	s.BaseSource.CreateTask = s.dispatcher
 }
 
 // Run function returns all subdomains found with the service
 func (s *Source) dispatcher(domain string) core.Task {
-	srcgrp.Add(1)
 	task := core.Task{
 		Domain: domain,
 	}
 
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
 		URL:    "https://dnsdumpster.com/",
 	}
@@ -115,30 +113,6 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return nil
 		}
 	}
-
-	task.Cleanup = func() {
-		srcgrp.Done()
-	}
+	task.HasSubtasks = true
 	return task
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "dnsdumpster"
-}
-
-func (s *Source) IsDefault() bool {
-	return true
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return true
-}
-
-func (s *Source) NeedsKey() bool {
-	return false
-}
-
-func (s *Source) AddApiKeys(_ []string) {
-	// no key needed
 }

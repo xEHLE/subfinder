@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 
 	jsoniter "github.com/json-iterator/go"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
@@ -43,14 +43,16 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "binaryedge"
+	s.BaseSource.Default = false
+	s.BaseSource.Recursive = true
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -61,7 +63,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 
 	randomApiKey := s.BaseSource.GetRandomKey()
 
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodGet,
 		URL:     v2SubscriptionURL,
 		Headers: map[string]string{"X-Key": randomApiKey},
@@ -102,6 +104,8 @@ func (s *Source) dispatcher(domain string) core.Task {
 		return fmt.Errorf("fallback to Onresponse")
 	}
 
+	task.HasSubtasks = true
+
 	task.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {
 		defer resp.Body.Close()
 		var response subdomainsResponse
@@ -118,49 +122,26 @@ func (s *Source) dispatcher(domain string) core.Task {
 			executor.Result <- core.Result{Source: "binaryedge", Type: core.Subdomain, Value: subdomain}
 		}
 
-		// Create new tasks
-		core.Dispatch(func(wg *sync.WaitGroup) {
-			defer wg.Done()
-			// recursion
-			totalPages := int(math.Ceil(float64(response.Total) / float64(response.PageSize)))
-			nextPage := response.Page + 1
-			for currentPage := nextPage; currentPage <= totalPages; currentPage++ {
-				tx := t.Clone()
-				pageurl, _ := addURLParam(tx.RequestOpts.URL, pageParam, strconv.Itoa(firstPage))
-				t.RequestOpts.URL = pageurl.String()
-				rkey := s.BaseSource.GetRandomKey()
-				t.RequestOpts.UID = rkey
-				t.RequestOpts.Headers = map[string]string{"X-Key": rkey}
-				executor.Task <- *tx
-			}
-		})
+		// recursion
+		totalPages := int(math.Ceil(float64(response.Total) / float64(response.PageSize)))
+		nextPage := response.Page + 1
+		for currentPage := nextPage; currentPage <= totalPages; currentPage++ {
+			tx := t.Clone()
+			pageurl, _ := addURLParam(tx.RequestOpts.URL, pageParam, strconv.Itoa(firstPage))
+			t.RequestOpts.URL = pageurl.String()
+			rkey := s.BaseSource.GetRandomKey()
+			t.RequestOpts.UID = rkey
+			t.RequestOpts.Headers = map[string]string{"X-Key": rkey}
+			executor.Task <- *tx
+		}
 		return nil
 	}
+
+	task.HasSubtasks = true
 	return task
 }
 
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "binaryedge"
-}
-
-func (s *Source) IsDefault() bool {
-	return false
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return true
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.BaseSource.AddKeys(keys...)
-}
-
-func isV2(ctx context.Context, reqopts *core.Options, session *core.Session) bool {
+func isV2(ctx context.Context, reqopts *session.RequestOpts, session *session.Session) bool {
 	resp, err := session.Do(ctx, reqopts)
 	if err != nil {
 		session.DiscardHTTPResponse(resp)

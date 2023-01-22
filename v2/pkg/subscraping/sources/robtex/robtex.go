@@ -7,11 +7,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sync"
 
 	jsoniter "github.com/json-iterator/go"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
@@ -33,14 +33,16 @@ type result struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "robtex"
+	s.BaseSource.Default = true
+	s.BaseSource.Recursive = false
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -51,7 +53,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	}
 	randomApiKey := s.GetRandomKey()
 
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:      http.MethodGet,
 		URL:         fmt.Sprintf("%s/forward/%s?key=%s", baseURL, domain, randomApiKey),
 		Source:      "robtex",
@@ -78,69 +80,46 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 
 		if len(results) > 0 {
-			core.Dispatch(func(wg *sync.WaitGroup) {
-				defer wg.Done()
-				for _, scanres := range results {
-					if scanres.Rrtype == addrRecord || scanres.Rrtype == iPv6AddrRecord {
-						tx := core.Task{
-							Domain: domain,
-						}
-						rkey := s.GetRandomKey()
-
-						tx.RequestOpts = &core.Options{
-							Method:      http.MethodGet,
-							URL:         fmt.Sprintf("%s/reverse/%s?key=%s", baseURL, scanres.Rrdata, rkey),
-							Source:      "robtex",
-							ContentType: "application/x-ndjson",
-							UID:         rkey,
-						}
-
-						tx.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {
-							defer resp.Body.Close()
-							scanner := bufio.NewScanner(resp.Body)
-							for scanner.Scan() {
-								line := scanner.Text()
-								if line == "" {
-									continue
-								}
-								var response result
-								err := jsoniter.NewDecoder(bytes.NewBufferString(line)).Decode(&response)
-								if err != nil {
-									return err
-								}
-								if response.Rrdata != "" {
-									executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: response.Rrdata}
-								}
-							}
-							return nil
-						}
-						executor.Task <- tx
+			for _, scanres := range results {
+				if scanres.Rrtype == addrRecord || scanres.Rrtype == iPv6AddrRecord {
+					tx := core.Task{
+						Domain: domain,
 					}
+					rkey := s.GetRandomKey()
+
+					tx.RequestOpts = &session.RequestOpts{
+						Method:      http.MethodGet,
+						URL:         fmt.Sprintf("%s/reverse/%s?key=%s", baseURL, scanres.Rrdata, rkey),
+						Source:      "robtex",
+						ContentType: "application/x-ndjson",
+						UID:         rkey,
+					}
+
+					tx.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {
+						defer resp.Body.Close()
+						scanner := bufio.NewScanner(resp.Body)
+						for scanner.Scan() {
+							line := scanner.Text()
+							if line == "" {
+								continue
+							}
+							var response result
+							err := jsoniter.NewDecoder(bytes.NewBufferString(line)).Decode(&response)
+							if err != nil {
+								return err
+							}
+							if response.Rrdata != "" {
+								executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: response.Rrdata}
+							}
+						}
+						return nil
+					}
+					executor.Task <- tx
 				}
-			})
+			}
 		}
 		return nil
 	}
+	task.HasSubtasks = true
 	return task
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "robtex"
-}
-
-func (s *Source) IsDefault() bool {
-	return true
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return false
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.AddKeys(keys...)
 }

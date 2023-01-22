@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
@@ -37,14 +37,16 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "zoomeye"
+	s.BaseSource.Default = false
+	s.BaseSource.Recursive = false
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -65,7 +67,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		return task
 	}
 
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodPost,
 		URL:     "https://api.zoomeye.org/user/login",
 		Cookies: "application/json",
@@ -85,67 +87,45 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return fmt.Errorf("jwt missing skipping source")
 		}
 
-		core.Dispatch(func(wg *sync.WaitGroup) {
-			defer wg.Done()
-			headers := map[string]string{
-				"Authorization": fmt.Sprintf("JWT %s", jwtToken),
-				"Accept":        "application/json",
-				"Content-Type":  "application/json",
+		headers := map[string]string{
+			"Authorization": fmt.Sprintf("JWT %s", jwtToken),
+			"Accept":        "application/json",
+			"Content-Type":  "application/json",
+		}
+		//TODO: check if it possible to fetch number of pages
+		for currentPage := 0; currentPage <= 100; currentPage++ {
+			tx := core.Task{
+				Domain: domain,
 			}
-			//TODO: check if it possible to fetch number of pages
-			for currentPage := 0; currentPage <= 100; currentPage++ {
-				tx := core.Task{
-					Domain: domain,
-				}
-				tx.RequestOpts = &core.Options{
-					Method:  http.MethodGet,
-					URL:     fmt.Sprintf("https://api.zoomeye.org/web/search?query=hostname:%s&page=%d", domain, currentPage),
-					Headers: headers,
-					UID:     jwtToken,
-					Source:  "zoomeye",
-				}
-				tx.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {
-					defer resp.Body.Close()
-					if resp.StatusCode != 200 {
-						return fmt.Errorf("got %v status code expected 200", resp.StatusCode)
-					}
-					var res zoomeyeResults
-					err := json.NewDecoder(resp.Body).Decode(&res)
-					if err != nil {
-						return err
-					}
-					for _, r := range res.Matches {
-						executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: r.Site}
-						for _, domain := range r.Domains {
-							executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: domain}
-						}
-					}
-					return nil
-				}
+			tx.RequestOpts = &session.RequestOpts{
+				Method:  http.MethodGet,
+				URL:     fmt.Sprintf("https://api.zoomeye.org/web/search?query=hostname:%s&page=%d", domain, currentPage),
+				Headers: headers,
+				UID:     jwtToken,
+				Source:  "zoomeye",
 			}
-		})
+			tx.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {
+				defer resp.Body.Close()
+				if resp.StatusCode != 200 {
+					return fmt.Errorf("got %v status code expected 200", resp.StatusCode)
+				}
+				var res zoomeyeResults
+				err := json.NewDecoder(resp.Body).Decode(&res)
+				if err != nil {
+					return err
+				}
+				for _, r := range res.Matches {
+					executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: r.Site}
+					for _, domain := range r.Domains {
+						executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: domain}
+					}
+				}
+				return nil
+			}
+			executor.Task <- tx
+		}
 		return nil
 	}
+	task.HasSubtasks = true
 	return task
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "zoomeye"
-}
-
-func (s *Source) IsDefault() bool {
-	return false
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return false
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.AddKeys(keys...)
 }

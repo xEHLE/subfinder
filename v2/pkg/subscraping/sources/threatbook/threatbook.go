@@ -10,6 +10,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
@@ -31,14 +32,17 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
+	s.BaseSource.SourceName = s.Name()
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "threatbook"
+	s.BaseSource.Default = false
+	s.BaseSource.Recursive = false
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -49,7 +53,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	}
 	randomApiKey := s.GetRandomKey()
 
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
 		URL:    fmt.Sprintf("https://api.threatbook.cn/v3/domain/sub_domains?apikey=%s&resource=%s", randomApiKey, domain),
 		Source: "threatbook",
@@ -80,27 +84,5 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		return nil
 	}
-
 	return task
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "threatbook"
-}
-
-func (s *Source) IsDefault() bool {
-	return false
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return false
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.AddKeys(keys...)
 }

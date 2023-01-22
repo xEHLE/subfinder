@@ -2,19 +2,20 @@ package core
 
 import (
 	"context"
-	"log"
 	"net/http"
-	"sync"
 	"time"
+
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 )
 
-// Task
+// Task is  bundle of options and functions that is created by
+// a source and executed by workers in worker group
 type Task struct {
 	Domain      string
+	HasSubtasks bool
 	Metdata     any                                                          // Optional metdata
 	ExecTime    time.Duration                                                // Time taken to execute this task
-	RequestOpts *Options                                                     // Request Options
-	PreRun      func()                                                       // PreRun
+	RequestOpts *session.RequestOpts                                         // Request Options
 	Override    func(t *Task, ctx context.Context, executor *Executor) error // Override ignores defined execution methodology and executes task if err is not nil default is executed
 	OnResponse  func(t *Task, resp *http.Response, executor *Executor) error // On Response
 	Cleanup     func()                                                       // Any CleanUp if necessary executed using defer
@@ -25,11 +26,12 @@ func (t *Task) Execute(ctx context.Context, e *Executor) {
 	defer func(start time.Time) {
 		t.ExecTime = time.Since(start)
 	}(time.Now())
-
-	if t.PreRun != nil {
-		t.PreRun()
-		log.Println("executed prerun")
-	}
+	// cleanup if available
+	defer func() {
+		if t.Cleanup != nil {
+			t.Cleanup()
+		}
+	}()
 
 	if t.Override != nil {
 		err := t.Override(t, ctx, e)
@@ -52,12 +54,6 @@ func (t *Task) Execute(ctx context.Context, e *Executor) {
 			Source: t.RequestOpts.Source, Type: Error, Error: err,
 		}
 	}
-
-	if t.Cleanup != nil {
-		log.Println("calling cleanup")
-		t.Cleanup()
-		log.Println("done cleanup")
-	}
 }
 
 // Clone // cross check
@@ -70,15 +66,4 @@ func (t *Task) Clone() *Task {
 		Override:    t.Override,
 	}
 	return &task
-}
-
-// Callback function that creates new tasks
-type DispatchFunc func(wg *sync.WaitGroup)
-
-// Dispatch creates and adds new tasks to worker pool
-// from existing ones and is non blocking in nature
-// ex: pagination ,search page etc
-func Dispatch(task DispatchFunc) {
-	wg.Add(1)
-	task(wg)
 }

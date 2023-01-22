@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 
 	jsoniter "github.com/json-iterator/go"
 	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 	"github.com/tomnomnom/linkheader"
 )
@@ -39,14 +39,16 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "github"
+	s.BaseSource.Default = false
+	s.BaseSource.Recursive = false
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -61,7 +63,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		"Accept": "application/vnd.github.v3.text-match+json", "Authorization": "token " + randomApiKey,
 	}
 
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodGet,
 		URL:     fmt.Sprintf("https://api.github.com/search/code?per_page=1000&q=%s&sort=created&order=asc", domain),
 		Headers: headers,
@@ -79,36 +81,32 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 
 		if len(data.Items) > 0 {
-			core.Dispatch(func(wg *sync.WaitGroup) {
-				defer wg.Done()
-				for _, v := range data.Items {
-					executor.Task <- s.fetchRepoPage(v.HTMLURL, t.Domain)
-				}
-			})
+			for _, v := range data.Items {
+				executor.Task <- s.fetchRepoPage(v.HTMLURL, t.Domain)
+			}
 		}
 		// Links header, first, next, last...
 		linksHeader := linkheader.Parse(resp.Header.Get("Link"))
 		// Process the next link recursively
 
 		if len(linksHeader) > 0 {
-			core.Dispatch(func(wg *sync.WaitGroup) {
-				for _, link := range linksHeader {
-					if link.Rel == "next" {
-						nextURL, err := url.QueryUnescape(link.URL)
-						if err != nil {
-							gologger.Debug().Label("github").Msg(err.Error())
-							continue
-						} else {
-							tx := t.Clone()
-							tx.RequestOpts.URL = nextURL
-							executor.Task <- *tx
-						}
+			for _, link := range linksHeader {
+				if link.Rel == "next" {
+					nextURL, err := url.QueryUnescape(link.URL)
+					if err != nil {
+						gologger.Debug().Label("github").Msg(err.Error())
+						continue
+					} else {
+						tx := t.Clone()
+						tx.RequestOpts.URL = nextURL
+						executor.Task <- *tx
 					}
 				}
-			})
+			}
 		}
 		return nil
 	}
+	task.HasSubtasks = true
 	return task
 }
 
@@ -119,7 +117,7 @@ func (s *Source) fetchRepoPage(itemHtmlUrl string, domain string) core.Task {
 	}
 	// Note: Here public url is used to fetch commit and is very slow
 	// it might be better to use api endpoint
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
 		URL:    rawURL(itemHtmlUrl),
 		Source: "github",
@@ -157,25 +155,4 @@ func normalizeContent(content string) string {
 func rawURL(htmlURL string) string {
 	domain := strings.ReplaceAll(htmlURL, "https://github.com/", "https://raw.githubusercontent.com/")
 	return strings.ReplaceAll(domain, "/blob/", "/")
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "github"
-}
-
-func (s *Source) IsDefault() bool {
-	return false
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return false
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.AddKeys(keys...)
 }

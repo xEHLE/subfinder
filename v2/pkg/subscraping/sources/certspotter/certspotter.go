@@ -5,11 +5,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sync"
 
 	jsoniter "github.com/json-iterator/go"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
@@ -24,14 +24,16 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "certspotter"
+	s.BaseSource.Recursive = true
+	s.BaseSource.Default = true
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -45,7 +47,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 
 	headers := map[string]string{"Authorization": "Bearer " + randomApiKey}
 
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodGet,
 		URL:     fmt.Sprintf("https://api.certspotter.com/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names", domain),
 		Headers: headers,
@@ -71,32 +73,12 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		id := response[len(response)-1].ID
 
-		core.Dispatch(func(wg *sync.WaitGroup) {
-			tx := t.Clone()
-			tx.RequestOpts.URL = fmt.Sprintf("https://api.certspotter.com/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names&after=%s", domain, id)
-		})
+		tx := t.Clone()
+		tx.RequestOpts.URL = fmt.Sprintf("https://api.certspotter.com/v1/issuances?domain=%s&include_subdomains=true&expand=dns_names&after=%s", domain, id)
+		tx.HasSubtasks = true
+
 		return nil
 	}
+	task.HasSubtasks = true
 	return task
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "certspotter"
-}
-
-func (s *Source) IsDefault() bool {
-	return true
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return true
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.BaseSource.AddKeys(keys...)
 }

@@ -1,4 +1,4 @@
-package subscraping
+package session
 
 import (
 	"bytes"
@@ -12,103 +12,20 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/corpix/uarand"
-	"github.com/projectdiscovery/ratelimit"
-
 	"github.com/projectdiscovery/gologger"
+	"github.com/projectdiscovery/ratelimit"
 )
 
-// Options contains request options
-type Options struct {
-	Method      string
-	URL         string
-	Cookies     string
-	Headers     map[string]string
-	ContentType string
-	Body        io.Reader
-	Source      string
-	UID         string             // API Key (used for UID) in ratelimit
-	Cancel      context.CancelFunc // To be used when ratelimit is hit
-	BasicAuth   BasicAuth          // Basic Auth
+// Session is the option passed to the source, an option is created
+// uniquely for each source.
+type Session struct {
+	// Client is the current http client
+	Client *http.Client
+	// Rate limit per source
+	RateLimiter *ratelimit.MultiLimiter
 }
 
-func (o *Options) getRequest(ctx context.Context) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, o.Method, o.URL, o.Body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", uarand.GetRandom())
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Language", "en")
-	req.Header.Set("Connection", "close")
-
-	if o.BasicAuth.Username != "" || o.BasicAuth.Password != "" {
-		req.SetBasicAuth(o.BasicAuth.Username, o.BasicAuth.Password)
-	}
-
-	if o.Cookies != "" {
-		req.Header.Set("Cookie", o.Cookies)
-	}
-	if o.Headers != nil {
-		for k, v := range o.Headers {
-			req.Header.Add(k, v)
-		}
-	}
-	if o.ContentType != "" {
-		req.Header.Add("Content-Type", o.ContentType)
-	}
-
-	return req, nil
-}
-
-// NewSession creates a new session object for a domain
-func NewSession(domain string, proxy string, rateLimit, timeout int) (*Session, error) {
-	Transport := &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 100,
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
-		Dial: (&net.Dialer{
-			Timeout: time.Duration(timeout) * time.Second,
-		}).Dial,
-	}
-
-	// Add proxy
-	if proxy != "" {
-		proxyURL, _ := url.Parse(proxy)
-		if proxyURL == nil {
-			// Log warning but continue anyway
-			gologger.Warning().Msgf("Invalid proxy provided: '%s'", proxy)
-		} else {
-			Transport.Proxy = http.ProxyURL(proxyURL)
-		}
-	}
-
-	client := &http.Client{
-		Transport: Transport,
-		Timeout:   time.Duration(timeout) * time.Second,
-	}
-
-	session := &Session{Client: client}
-
-	// Initiate rate limit instance
-	if rateLimit != 0 {
-		session.RateLimiter, _ = ratelimit.NewMultiLimiter(context.TODO(), &ratelimit.Options{
-			Key:      "default", // for sources with unknown ratelimits
-			MaxCount: uint(rateLimit),
-			Duration: time.Minute, // from observations refer DefaultRateLimits
-		})
-	}
-
-	// Create a new extractor object for the current domain
-	extractor, err := NewSubdomainExtractor(domain)
-	session.Extractor = extractor
-
-	return session, err
-}
-
-func (s *Session) ratelimit(opts *Options) {
+func (s *Session) ratelimit(opts *RequestOpts) {
 	// ratelimit disabled
 	if s.RateLimiter == nil {
 		return
@@ -122,6 +39,7 @@ func (s *Session) ratelimit(opts *Options) {
 	if !ok || source.MaxCount == 0 {
 		// When ratelimit is unknown or not possible to implement
 		// use default rate limit with user defined value
+		//TODO: add createandtake method
 		sourceId = "default"
 	}
 	err := s.RateLimiter.Take(sourceId)
@@ -142,7 +60,7 @@ func (s *Session) ratelimit(opts *Options) {
 }
 
 // Do creates , sends http request and returns response
-func (s *Session) Do(ctx context.Context, opts *Options) (*http.Response, error) {
+func (s *Session) Do(ctx context.Context, opts *RequestOpts) (*http.Response, error) {
 	req, err := opts.getRequest(ctx)
 	if err != nil {
 		return nil, err
@@ -152,6 +70,12 @@ func (s *Session) Do(ctx context.Context, opts *Options) (*http.Response, error)
 	if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		// possibly missing credentials cancel source
+		opts.Cancel()
+		return nil, fmt.Errorf("%v: got code %v stopping source", opts.Source, resp.StatusCode)
+	}
+
 	// Check If Rate Limit was hit
 	if resp.StatusCode == 429 || (resp.StatusCode == 204 && opts.Source == "censys") {
 		// time after which ratelimit will be reset
@@ -209,4 +133,44 @@ func (s *Session) DiscardHTTPResponse(response *http.Response) {
 		}
 		response.Body.Close()
 	}
+}
+
+// NewSession creates a new session object for a domain
+func NewSession(proxy string, rateLimit, timeout int) *Session {
+	Transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+		Dial: (&net.Dialer{
+			Timeout: time.Duration(timeout) * time.Second,
+		}).Dial,
+	}
+
+	// Add proxy
+	if proxy != "" {
+		proxyURL, _ := url.Parse(proxy)
+		if proxyURL == nil {
+			// Log warning but continue anyway
+			gologger.Warning().Msgf("Invalid proxy provided: '%s'", proxy)
+		} else {
+			Transport.Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+	client := &http.Client{
+		Transport: Transport,
+		Timeout:   time.Duration(timeout) * time.Second,
+	}
+	session := &Session{Client: client}
+
+	// Initiate rate limit instance
+	if rateLimit != 0 {
+		session.RateLimiter, _ = ratelimit.NewMultiLimiter(context.TODO(), &ratelimit.Options{
+			Key:      "default", // for sources with unknown ratelimits
+			MaxCount: uint(rateLimit),
+			Duration: time.Minute, // from observations refer DefaultRateLimits
+		})
+	}
+	return session
 }

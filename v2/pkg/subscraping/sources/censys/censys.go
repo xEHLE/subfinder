@@ -11,6 +11,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 	"github.com/projectdiscovery/subfinder/v2/pkg/subscraping"
 )
 
@@ -34,14 +35,16 @@ type Source struct {
 }
 
 // Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *core.Extractor, input <-chan string, output chan<- core.Task) {
-	s.BaseSource.Name = s.Name()
+func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
 	s.init()
-	s.BaseSource.Daemon(ctx, e, nil, input, output)
+	s.BaseSource.Daemon(ctx, e, input, output)
 }
 
 // inits the source before passing to daemon
 func (s *Source) init() {
+	s.BaseSource.SourceName = "censys"
+	s.BaseSource.Recursive = false
+	s.BaseSource.Default = true
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.CreateTask = s.dispatcher
 }
@@ -52,17 +55,16 @@ func (s *Source) dispatcher(domain string) core.Task {
 		Domain: domain,
 	}
 	apitoken, apisecret, _ := subscraping.GetMultiPartKey(s.GetRandomKey())
-	task.RequestOpts = &core.Options{
+	task.RequestOpts = &session.RequestOpts{
 		Method:    http.MethodPost,
 		URL:       "https://search.censys.io/api/v1/search/certificates",
 		Headers:   map[string]string{"Content-Type": "application/json", "Accept": "application/json"},
 		Body:      getRequestBody(domain, 1),
-		BasicAuth: core.BasicAuth{Username: apitoken, Password: apisecret},
+		BasicAuth: session.BasicAuth{Username: apitoken, Password: apisecret},
 		Source:    "censys",
 		UID:       apitoken,
 	}
 	task.Metdata = 1
-
 	task.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {
 		defer resp.Body.Close()
 		var censysResponse response
@@ -96,28 +98,8 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		return nil
 	}
+	task.HasSubtasks = true
 	return task
-}
-
-// Name returns the name of the source
-func (s *Source) Name() string {
-	return "censys"
-}
-
-func (s *Source) IsDefault() bool {
-	return true
-}
-
-func (s *Source) HasRecursiveSupport() bool {
-	return false
-}
-
-func (s *Source) NeedsKey() bool {
-	return true
-}
-
-func (s *Source) AddApiKeys(keys []string) {
-	s.BaseSource.AddKeys(keys...)
 }
 
 func getRequestBody(domain string, currentPage int) *bytes.Reader {
