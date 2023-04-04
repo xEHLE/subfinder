@@ -3,7 +3,7 @@ package censys
 
 import (
 	"bytes"
-	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -34,14 +34,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "censys"
 	s.BaseSource.Recursive = false
 	s.BaseSource.Default = true
@@ -54,7 +48,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	apitoken, apisecret, _ := subscraping.GetMultiPartKey(s.GetRandomKey())
+	apitoken, apisecret, _ := subscraping.GetMultiPartKey(s.GetNextKey())
 	task.RequestOpts = &session.RequestOpts{
 		Method:    http.MethodPost,
 		URL:       "https://search.censys.io/api/v1/search/certificates",
@@ -73,15 +67,11 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return err
 		}
 
-		for _, res := range censysResponse.Results {
-			for _, part := range res.Data {
-				executor.Result <- core.Result{Source: t.RequestOpts.Source, Type: core.Subdomain, Value: part}
-			}
-			for _, part := range res.Data1 {
-				executor.Result <- core.Result{Source: t.RequestOpts.Source, Type: core.Subdomain, Value: part}
-			}
+		re := executor.Extractor.Get(domain)
+		results := re.FindAllString(fmt.Sprint(censysResponse.Results), -1)
+		for _, v := range results {
+			executor.Result <- core.Result{Input: domain, Source: t.RequestOpts.Source, Type: core.Subdomain, Value: v}
 		}
-
 		// fetch next pages
 		if currentPage, ok := t.Metdata.(int); ok {
 			minfloat := math.Min(float64(censysResponse.Metadata.Pages), maxCensysPages)

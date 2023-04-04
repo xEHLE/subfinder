@@ -2,7 +2,6 @@
 package alienvault
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,17 +21,11 @@ type alienvaultResponse struct {
 
 // Source is the passive scraping agent
 type Source struct {
-	*subscraping.BaseSource
-}
-
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
+	subscraping.BaseSource
 }
 
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "alienvault"
 	s.BaseSource.RequiresKey = false
 	s.BaseSource.Default = true
@@ -60,7 +53,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return fmt.Errorf("%s, %s", response.Detail, response.Error)
 		}
 		for _, record := range response.PassiveDNS {
-			executor.Result <- core.Result{Source: "alienvault", Type: core.Subdomain, Value: record.Hostname}
+			executor.Result <- core.Result{Input: domain, Source: "alienvault", Type: core.Subdomain, Value: record.Hostname}
 		}
 		return nil
 	}

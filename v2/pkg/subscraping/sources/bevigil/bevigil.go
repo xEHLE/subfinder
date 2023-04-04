@@ -2,7 +2,6 @@
 package bevigil
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -21,14 +20,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "bevigil"
 	s.BaseSource.RequiresKey = true
 	s.BaseSource.Default = true
@@ -38,7 +31,7 @@ func (s *Source) init() {
 
 func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{}
-	randomApiKey := s.BaseSource.GetRandomKey()
+	randomApiKey := s.BaseSource.GetNextKey()
 	getUrl := fmt.Sprintf("https://osint.bevigil.com/api/%s/subdomains/", domain)
 
 	task.RequestOpts = &session.RequestOpts{
@@ -63,7 +56,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			subdomains = response.Subdomains
 		}
 		for _, subdomain := range subdomains {
-			executor.Result <- core.Result{Source: "bevigil", Type: core.Subdomain, Value: subdomain}
+			executor.Result <- core.Result{Input: domain, Source: "bevigil", Type: core.Subdomain, Value: subdomain}
 		}
 		return nil
 	}

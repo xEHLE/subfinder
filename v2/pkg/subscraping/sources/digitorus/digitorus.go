@@ -3,7 +3,6 @@ package digitorus
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -18,14 +17,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "digitorus"
 	s.BaseSource.Recursive = true
 	s.BaseSource.Default = true
@@ -54,7 +47,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			}
 			subdomains := executor.Extractor.Get(t.Domain).FindAllString(line, -1)
 			for _, subdomain := range subdomains {
-				executor.Result <- core.Result{
+				executor.Result <- core.Result{Input: domain,
 					Source: s.Name(), Type: core.Subdomain, Value: strings.TrimPrefix(subdomain, "."),
 				}
 			}

@@ -2,7 +2,6 @@
 package c99
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -28,14 +27,8 @@ type dnsdbLookupResponse struct {
 	Error string `json:"error"`
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "c99"
 	s.BaseSource.Recursive = false
 	s.BaseSource.Default = true
@@ -49,7 +42,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		Domain: domain,
 	}
 
-	randomApiKey := s.BaseSource.GetRandomKey()
+	randomApiKey := s.BaseSource.GetNextKey()
 	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
 		URL:    fmt.Sprintf("https://api.c99.nl/subdomainfinder?key=%s&domain=%s&json", randomApiKey, domain),
@@ -69,7 +62,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		for _, data := range response.Subdomains {
 			if !strings.HasPrefix(data.Subdomain, ".") {
-				executor.Result <- core.Result{Source: "c99", Type: core.Subdomain, Value: data.Subdomain}
+				executor.Result <- core.Result{Input: domain, Source: "c99", Type: core.Subdomain, Value: data.Subdomain}
 			}
 		}
 		return nil

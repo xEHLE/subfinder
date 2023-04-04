@@ -2,7 +2,6 @@ package chinaz
 
 // chinaz  http://my.chinaz.com/ChinazAPI/DataCenter/MyDataApi
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,14 +17,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "chinaz"
 	s.BaseSource.Recursive = false
 	s.BaseSource.Default = true
@@ -36,7 +29,7 @@ func (s *Source) init() {
 func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{}
 
-	randomApiKey := s.BaseSource.GetRandomKey()
+	randomApiKey := s.BaseSource.GetNextKey()
 
 	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
@@ -56,7 +49,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			_data := []byte(SubdomainList.ToString())
 			for i := 0; i < SubdomainList.Size(); i++ {
 				subdomain := jsoniter.Get(_data, i, "DataUrl").ToString()
-				executor.Result <- core.Result{Source: "chinaz", Type: core.Subdomain, Value: subdomain}
+				executor.Result <- core.Result{Input: domain, Source: "chinaz", Type: core.Subdomain, Value: subdomain}
 			}
 		}
 		return nil

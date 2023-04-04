@@ -3,7 +3,6 @@ package zoomeye
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -36,14 +35,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "zoomeye"
 	s.BaseSource.Default = false
 	s.BaseSource.Recursive = false
@@ -56,7 +49,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		Domain: domain,
 	}
 
-	apiusername, apipassword, _ := subscraping.GetMultiPartKey(s.GetRandomKey())
+	apiusername, apipassword, _ := subscraping.GetMultiPartKey(s.GetNextKey())
 
 	creds := &zoomAuth{
 		User: apiusername,
@@ -115,9 +108,9 @@ func (s *Source) dispatcher(domain string) core.Task {
 					return err
 				}
 				for _, r := range res.Matches {
-					executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: r.Site}
+					executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: r.Site}
 					for _, domain := range r.Domains {
-						executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: domain}
+						executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: domain}
 					}
 				}
 				return nil

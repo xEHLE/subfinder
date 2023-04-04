@@ -2,7 +2,6 @@
 package dnsdumpster
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -60,7 +59,7 @@ func postForm(domain string, token string) core.Task {
 		}
 		data := string(in)
 		for _, subdomain := range executor.Extractor.Get(domain).FindAllString(data, -1) {
-			executor.Result <- core.Result{Source: "dnsdumpster", Type: core.Subdomain, Value: subdomain}
+			executor.Result <- core.Result{Input: domain, Source: "dnsdumpster", Type: core.Subdomain, Value: subdomain}
 		}
 		return nil
 	}
@@ -72,16 +71,10 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "dnsdumpster"
-	s.BaseSource.Default = true
+	s.BaseSource.Default = false
 	s.BaseSource.Recursive = true
 	s.BaseSource.RequiresKey = false
 	s.BaseSource.CreateTask = s.dispatcher
@@ -96,6 +89,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
 		URL:    "https://dnsdumpster.com/",
+		Source: s.SourceName,
 	}
 
 	task.OnResponse = func(t *core.Task, resp *http.Response, executor *core.Executor) error {

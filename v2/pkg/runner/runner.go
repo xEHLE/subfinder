@@ -3,19 +3,22 @@ package runner
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/hako/durafmt"
 	"github.com/pkg/errors"
 
 	"github.com/projectdiscovery/gologger"
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
 	"github.com/projectdiscovery/subfinder/v2/pkg/passive"
 	"github.com/projectdiscovery/subfinder/v2/pkg/resolve"
+	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 )
 
 // Runner is an instance of the subdomain enumeration
@@ -25,13 +28,18 @@ type Runner struct {
 	passiveAgent   *passive.Agent
 	resolverClient *resolve.Resolver
 	executor       *core.Executor
+	writers        []io.Writer
 }
 
 // NewRunner creates a new runner struct instance by parsing
 // the configuration options, configuring sources, reading lists
 // and setting up loggers, etc.
 func NewRunner(options *Options) (*Runner, error) {
-	runner := &Runner{options: options}
+	runner := &Runner{options: options, writers: []io.Writer{options.Output}}
+	if len(runner.writers) == 0 {
+		// fallback to os.stdout
+		runner.writers = append(runner.writers, os.Stdout)
+	}
 
 	// Initialize the passive subdomain enumeration engine
 	runner.initializePassiveEngine()
@@ -56,6 +64,22 @@ func (r *Runner) initExecutor() {
 		RateLimit:       r.options.RateLimit,
 		Timeout:         r.options.Timeout,
 	}, r.passiveAgent.TaskChan)
+	// User can override any default ratelimit with this flag
+	if r.options.RateLimitSource != nil {
+		for _, v := range r.options.RateLimitSource {
+			d := strings.SplitN(v, "=", 2)
+			if len(d) == 2 {
+				x, _ := strconv.Atoi(d[1])
+				if x == 0 {
+					continue
+				}
+				session.DefaultRateLimits[d[0]] = session.SourceRateLimit{
+					MaxCount: uint(x),
+					Duration: time.Minute,
+				}
+			}
+		}
+	}
 }
 
 // Run runs all sources and execute results
@@ -113,11 +137,14 @@ func (r *Runner) handleInput(sg *sync.WaitGroup) {
 
 func (r *Runner) handleOutput(sg *sync.WaitGroup, resultChan chan core.Result) {
 	defer sg.Done()
-	uniqueMap := map[string]struct{}{}
+
+	// Create a unique map for filtering duplicate subdomains out
+	uniqueMap := make(map[string]resolve.HostEntry)
+	// Create a map to track sources for each host
+	sourceMap := make(map[string]map[string]struct{})
 
 	for {
 		result, ok := <-resultChan
-		// gologger.Debug().Msgf("got output %v\n", result)
 		if !ok {
 			break
 		}
@@ -131,43 +158,76 @@ func (r *Runner) handleOutput(sg *sync.WaitGroup, resultChan chan core.Result) {
 		// Filter and Match Results
 		subdomain := strings.ReplaceAll(strings.ToLower(result.Value), "*.", "")
 		if matchSubdomain := r.filterAndMatchSubdomain(subdomain); matchSubdomain {
-			// skip everything as of now
+			// add to unique map if not present
 			if _, ok := uniqueMap[subdomain]; !ok {
-				uniqueMap[subdomain] = struct{}{}
+				sourceMap[subdomain] = make(map[string]struct{})
 			}
+			// Log the verbose message about the found subdomain per source
+			if _, ok := sourceMap[subdomain][result.Source]; !ok {
+				gologger.Verbose().Label(result.Source).Msg(subdomain)
+			}
+			sourceMap[subdomain][result.Source] = struct{}{}
+
+			// Check if the subdomain is a duplicate. If not,
+			// send the subdomain for resolution.
+			if _, ok := uniqueMap[subdomain]; ok {
+				continue
+			}
+
+			hostEntry := resolve.HostEntry{Host: subdomain, Source: result.Source}
+
+			uniqueMap[subdomain] = hostEntry
 		}
 	}
-	for k := range uniqueMap {
-		fmt.Fprintf(r.options.Output, "%v\n", k)
+	outputWriter := NewOutputWriter(r.options.JSON)
+	// Now output all results in output writers
+	var err error
+	for _, writer := range r.writers {
+		if r.options.HostIP {
+			err = outputWriter.WriteHostIP(domain, foundResults, writer)
+		} else {
+			if r.options.RemoveWildcard {
+				err = outputWriter.WriteHostNoWildcard(domain, foundResults, writer)
+			} else {
+				if r.options.CaptureSources {
+					err = outputWriter.WriteSourceHost(domain, sourceMap, writer)
+				} else {
+					err = outputWriter.WriteHost(domain, uniqueMap, writer)
+				}
+			}
+		}
+		if err != nil {
+			gologger.Error().Msgf("Could not write results for %s: %s\n", domain, err)
+			return err
+		}
 	}
+
+	// Show found subdomain count in any case.
+	duration := durafmt.Parse(time.Since(now)).LimitFirstN(maxNumCount).String()
+	var numberOfSubDomains int
+	if r.options.RemoveWildcard {
+		numberOfSubDomains = len(foundResults)
+	} else {
+		numberOfSubDomains = len(uniqueMap)
+	}
+
+	if r.options.ResultCallback != nil {
+		for _, v := range uniqueMap {
+			r.options.ResultCallback(&v)
+		}
+	}
+	gologger.Info().Msgf("Found %d subdomains for %s in %s\n", numberOfSubDomains, domain, duration)
+
+	if r.options.Statistics {
+		gologger.Info().Msgf("Printing source statistics for %s", domain)
+		printStatistics(r.passiveAgent.GetStatistics())
+	}
+
+	return nil
 }
 
-// // RunEnumeration runs the subdomain enumeration flow on the targets specified
-// func (r *Runner) RunEnumeration() error {
-// 	outputs := []io.Writer{r.options.Output}
-
-// 	if len(r.options.Domain) > 0 {
-// 		domainsReader := strings.NewReader(strings.Join(r.options.Domain, "\n"))
-// 		return r.EnumerateMultipleDomains(domainsReader, outputs)
-// 	}
-
-// 	// If we have multiple domains as input,
-// 	if r.options.DomainsFile != "" {
-// 		f, err := os.Open(r.options.DomainsFile)
-// 		if err != nil {
-// 			return err
-// 		}
-// 		err = r.EnumerateMultipleDomains(f, outputs)
-// 		f.Close()
-// 		return err
-// 	}
-
-// 	// If we have STDIN input, treat it as multiple domains
-// 	if r.options.Stdin {
-// 		return r.EnumerateMultipleDomains(os.Stdin, outputs)
-// 	}
-// 	return nil
-// }
+// TBD
+func (r *Runner) handleWildCards() {}
 
 // // EnumerateMultipleDomains enumerates subdomains for multiple domains
 // // We keep enumerating subdomains for a given domain until we reach an error

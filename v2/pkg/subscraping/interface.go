@@ -33,4 +33,7 @@ type Source interface {
 
 	// AddKeys adds given keys to source
 	AddKeys(key ...string)
+
+	// Init Initializes the source
+	Init()
 }

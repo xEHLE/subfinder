@@ -2,7 +2,6 @@
 package virustotal
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -22,14 +21,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "virustotal"
 	s.BaseSource.Default = true
 	s.BaseSource.Recursive = true
@@ -41,7 +34,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.GetRandomKey()
+	randomApiKey := s.GetNextKey()
 
 	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
@@ -58,7 +51,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return err
 		}
 		for _, subdomain := range data.Subdomains {
-			executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: subdomain}
+			executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: subdomain}
 		}
 		return nil
 	}

@@ -72,10 +72,6 @@ func (a *Agent) Wait() {
 // New creates a new agent for passive subdomain discovery
 func New(sourceNames, excludedSourceNames []string, useAllSources, useSourcesSupportingRecurse bool) *Agent {
 	sources := make(map[string]subscraping.Source)
-	for k := range NameSourceMap {
-		fmt.Println(k)
-	}
-
 	if useAllSources {
 		maps.Copy(sources, NameSourceMap)
 	} else {

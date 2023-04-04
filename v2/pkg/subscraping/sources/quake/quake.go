@@ -3,7 +3,6 @@ package quake
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -36,14 +35,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "quake"
 	s.BaseSource.Default = true
 	s.BaseSource.Recursive = false
@@ -55,7 +48,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.GetRandomKey()
+	randomApiKey := s.GetNextKey()
 	// quake api doc https://quake.360.cn/quake/#/help
 	var requestBody = []byte(fmt.Sprintf(`{"query":"domain: *.%s", "start":0, "size":500}`, domain))
 	task.RequestOpts = &session.RequestOpts{
@@ -85,7 +78,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 				if strings.ContainsAny(subdomain, "暂无权限") {
 					subdomain = ""
 				}
-				executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: subdomain}
+				executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: subdomain}
 			}
 		}
 		return nil

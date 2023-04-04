@@ -1,7 +1,6 @@
 package hunter
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -36,14 +35,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "hunter"
 	s.BaseSource.Recursive = false
 	s.BaseSource.Default = true
@@ -55,7 +48,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.GetRandomKey()
+	randomApiKey := s.GetNextKey()
 
 	// hunter api doc https://hunter.qianxin.com/home/helpCenter?r=5-1-2
 	qbase64 := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("domain=\"%s\"", domain)))
@@ -80,14 +73,14 @@ func (s *Source) dispatcher(domain string) core.Task {
 		if response.Data.Total > 0 {
 			for _, hunterInfo := range response.Data.InfoArr {
 				subdomain := hunterInfo.Domain
-				executor.Result <- core.Result{Source: "hunter", Type: core.Subdomain, Value: subdomain}
+				executor.Result <- core.Result{Input: domain, Source: "hunter", Type: core.Subdomain, Value: subdomain}
 			}
 		}
 		pages := int(response.Data.Total/1000) + 1
 		if pages > 1 {
 			for i := 2; i < pages; i++ {
 				tx := t.Clone()
-				randomApiKey := s.GetRandomKey()
+				randomApiKey := s.GetNextKey()
 				tx.RequestOpts.URL = fmt.Sprintf("https://hunter.qianxin.com/openApi/search?api-key=%s&search=%s&page=%v&page_size=100&is_web=3", randomApiKey, qbase64, page)
 				executor.Task <- task
 			}

@@ -1,7 +1,6 @@
 package zoomeyeapi
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,14 +25,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "zoomeyeapi"
 	s.BaseSource.Default = false
 	s.BaseSource.Recursive = false
@@ -45,7 +38,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.GetRandomKey()
+	randomApiKey := s.GetNextKey()
 
 	headers := map[string]string{
 		"API-KEY":      randomApiKey,
@@ -70,13 +63,13 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return err
 		}
 		for _, r := range res.List {
-			executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: r.Name}
+			executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: r.Name}
 		}
 		pages := int(res.Total/1000) + 1
 		if pages > 1 {
 			for i := 2; i < pages; i++ {
 				tx := t.Clone()
-				tx.RequestOpts.Headers["API-KEY"] = s.GetRandomKey()
+				tx.RequestOpts.Headers["API-KEY"] = s.GetNextKey()
 				tx.RequestOpts.URL = fmt.Sprintf("https://api.zoomeye.org/domain/search?q=%s&type=1&s=1000&page=%d", domain, i)
 				executor.Task <- *tx
 			}

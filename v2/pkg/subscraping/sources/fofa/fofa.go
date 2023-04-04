@@ -2,7 +2,6 @@
 package fofa
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -26,14 +25,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "fofa"
 	s.BaseSource.Recursive = false
 	s.BaseSource.Default = true
@@ -45,7 +38,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	apiusername, apisecret, _ := subscraping.GetMultiPartKey(s.GetRandomKey())
+	apiusername, apisecret, _ := subscraping.GetMultiPartKey(s.GetNextKey())
 
 	qbase64 := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("domain=\"%s\"", domain)))
 	task.RequestOpts = &session.RequestOpts{
@@ -70,7 +63,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 				if strings.HasPrefix(strings.ToLower(subdomain), "http://") || strings.HasPrefix(strings.ToLower(subdomain), "https://") {
 					subdomain = subdomain[strings.Index(subdomain, "//")+2:]
 				}
-				executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: subdomain}
+				executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: subdomain}
 			}
 		}
 		return nil

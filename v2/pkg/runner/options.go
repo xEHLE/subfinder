@@ -58,7 +58,8 @@ type Options struct {
 	Config             string              // Config contains the location of the config file
 	ProviderConfig     string              // ProviderConfig contains the location of the provider config file
 	Proxy              string              // HTTP proxy
-	RateLimit          int                 // Maximum number of HTTP requests to send per second
+	RateLimit          int                 // Maximum number of HTTP requests to send per Minute
+	RateLimitSource    goflags.StringSlice // Force Ratelimit for source
 	ExcludeIps         bool
 	Match              goflags.StringSlice
 	Filter             goflags.StringSlice
@@ -111,7 +112,8 @@ func ParseOptions() *Options {
 	)
 
 	createGroup(flagSet, "rate-limit", "Rate-limit",
-		flagSet.IntVarP(&options.RateLimit, "rate-limit-minute", "rlm", 0, "max number of http request sent to unknown ratelimit sources per minute"),
+		flagSet.IntVarP(&options.RateLimit, "rate-limit-minute", "rlm", 120, "max number of http request sent to unknown ratelimit sources per minute"),
+		flagSet.StringSliceVarP(&options.RateLimitSource, "rate-limit-src", "rls", nil, "override rate limit of any source(ex: dnsdumpset=30) per minute", goflags.CommaSeparatedStringSliceOptions),
 		flagSet.IntVar(&options.Threads, "t", 10, "number of concurrent goroutines for resolving (-active only)"),
 		flagSet.IntVarP(&options.Concurrency, "concurrency", "c", 50, "Max number of requests to be sent in parallel"),
 	)

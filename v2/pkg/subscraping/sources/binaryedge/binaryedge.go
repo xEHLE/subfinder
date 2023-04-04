@@ -42,14 +42,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "binaryedge"
 	s.BaseSource.Default = false
 	s.BaseSource.Recursive = true
@@ -61,7 +55,7 @@ func (s *Source) init() {
 func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{}
 
-	randomApiKey := s.BaseSource.GetRandomKey()
+	randomApiKey := s.BaseSource.GetNextKey()
 
 	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodGet,
@@ -80,7 +74,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		} else {
 			v1URLWithPageSize, err := addURLParam(fmt.Sprintf(baseAPIURLFmt, v1, domain), v1PageSizeParam, strconv.Itoa(maxV1PageSize))
 			if err != nil {
-				executor.Result <- core.Result{
+				executor.Result <- core.Result{Input: domain,
 					Source: t.RequestOpts.Source, Type: core.Error, Error: err,
 				}
 				return nil // will not fallback to Onresponse
@@ -88,14 +82,14 @@ func (s *Source) dispatcher(domain string) core.Task {
 			baseURL = v1URLWithPageSize.String()
 		}
 		if baseURL == "" {
-			executor.Result <- core.Result{
+			executor.Result <- core.Result{Input: domain,
 				Source: t.RequestOpts.Source, Type: core.Error, Error: fmt.Errorf("can't get API URL"),
 			}
 			return nil // will not fallback to Onresponse
 		}
 		pageURL, err := addURLParam(baseURL, pageParam, strconv.Itoa(firstPage))
 		if err != nil {
-			executor.Result <- core.Result{
+			executor.Result <- core.Result{Input: domain,
 				Source: t.RequestOpts.Source, Type: core.Error, Error: err,
 			}
 			return nil // will not fallback to Onresponse
@@ -115,11 +109,11 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		// Check error messages
 		if response.Message != "" && response.Status != nil {
-			executor.Result <- core.Result{Source: "binaryedge", Type: core.Error, Error: fmt.Errorf(response.Message)}
+			executor.Result <- core.Result{Input: domain, Source: "binaryedge", Type: core.Error, Error: fmt.Errorf(response.Message)}
 			return fmt.Errorf(response.Message)
 		}
 		for _, subdomain := range response.Subdomains {
-			executor.Result <- core.Result{Source: "binaryedge", Type: core.Subdomain, Value: subdomain}
+			executor.Result <- core.Result{Input: domain, Source: "binaryedge", Type: core.Subdomain, Value: subdomain}
 		}
 
 		// recursion
@@ -129,7 +123,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			tx := t.Clone()
 			pageurl, _ := addURLParam(tx.RequestOpts.URL, pageParam, strconv.Itoa(firstPage))
 			t.RequestOpts.URL = pageurl.String()
-			rkey := s.BaseSource.GetRandomKey()
+			rkey := s.BaseSource.GetNextKey()
 			t.RequestOpts.UID = rkey
 			t.RequestOpts.Headers = map[string]string{"X-Key": rkey}
 			executor.Task <- *tx

@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/projectdiscovery/gologger"
@@ -23,6 +22,8 @@ type Session struct {
 	Client *http.Client
 	// Rate limit per source
 	RateLimiter *ratelimit.MultiLimiter
+	// Default RL
+	ratelimitminute uint
 }
 
 func (s *Session) ratelimit(opts *RequestOpts) {
@@ -34,29 +35,21 @@ func (s *Session) ratelimit(opts *RequestOpts) {
 	if opts.UID != "" {
 		sourceId += "-" + opts.UID
 	}
+	rlopts := &ratelimit.Options{}
 	// check if ratelimit of this source is available
 	source, ok := DefaultRateLimits[opts.Source]
 	if !ok || source.MaxCount == 0 {
 		// When ratelimit is unknown or not possible to implement
 		// use default rate limit with user defined value
-		//TODO: add createandtake method
 		sourceId = "default"
+		rlopts.Duration = time.Minute
+		rlopts.MaxCount = s.ratelimitminute
+	} else {
+		rlopts.Duration = source.Duration
+		rlopts.MaxCount = source.MaxCount
 	}
-	err := s.RateLimiter.Take(sourceId)
-	if err != nil {
-		// does not exist
-		if err = s.RateLimiter.Add(&ratelimit.Options{
-			Key:         sourceId,
-			IsUnlimited: false,
-			MaxCount:    source.MaxCount,
-			Duration:    source.Duration,
-		}); err != nil {
-			gologger.Debug().Label("Err").Msgf("failed to create new ratelimit: %v", err)
-		}
-		if errx := s.RateLimiter.Take(sourceId); errx != nil {
-			gologger.Debug().Label("Err").Msgf("failed to take ratelimit: %v", err)
-		}
-	}
+	rlopts.Key = sourceId
+	s.RateLimiter.AddAndTake(rlopts)
 }
 
 // Do creates , sends http request and returns response
@@ -71,45 +64,17 @@ func (s *Session) Do(ctx context.Context, opts *RequestOpts) (*http.Response, er
 		return nil, err
 	}
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		// possibly missing credentials cancel source
+		// possibly missing credentials cancel source from sending more tasks
 		opts.Cancel()
 		return nil, fmt.Errorf("%v: got code %v stopping source", opts.Source, resp.StatusCode)
 	}
-
-	// Check If Rate Limit was hit
+	// Ratelimit not set
 	if resp.StatusCode == 429 || (resp.StatusCode == 204 && opts.Source == "censys") {
-		// time after which ratelimit will be reset
-		var rlwaittime time.Duration
-		if rl, ok := DefaultRateLimits[opts.Source]; ok {
-			rlwaittime = rl.Duration
-		}
-		if resp.Header.Get("Retry-After") != "" {
-			retryAfter, er := strconv.Atoi(resp.Header.Get("Retry-After"))
-			if er != nil {
-				rlwaittime = time.Duration(retryAfter) * time.Second
-			}
-		}
-		if rlwaittime == 0 || rlwaittime > time.Duration(5)*time.Second {
-			if opts.Cancel != nil {
-				opts.Cancel()
-			} // Stop source completely
-			gologger.Debug().Label("RTL").MsgFunc(func() string {
-				if rlwaittime == 0 {
-					return fmt.Sprintf("rate limit exceeded for source %v skipping...", opts.Source)
-				} else {
-					return fmt.Sprintf("rate limit exceeded for source %v refresh time too high %v.skipping source", opts.Source, rlwaittime)
-				}
-			})
-		} else {
-			// sleep and reset (will be implemented in retryablehttp-go)
-			s.RateLimiter.SleepandReset(rlwaittime, &ratelimit.Options{
-				Key:      opts.Source,
-				MaxCount: 1,
-				Duration: time.Second,
-			})
-		}
-		return nil, fmt.Errorf("ratelimit hit")
+		gologger.Debug().Label(opts.Source).Msgf("hit ratelimit got code %v", resp.StatusCode)
+		opts.Cancel()
+		return resp, fmt.Errorf("%v: got code %v stopping source", opts.Source, resp.StatusCode)
 	}
+
 	if resp.StatusCode != http.StatusOK {
 		requestURL, _ := url.QueryUnescape(req.URL.String())
 
@@ -142,6 +107,7 @@ func NewSession(proxy string, rateLimit, timeout int) *Session {
 		MaxIdleConnsPerHost: 100,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
+			MaxVersion:         tls.VersionTLS12,
 		},
 		Dial: (&net.Dialer{
 			Timeout: time.Duration(timeout) * time.Second,
@@ -162,15 +128,16 @@ func NewSession(proxy string, rateLimit, timeout int) *Session {
 		Transport: Transport,
 		Timeout:   time.Duration(timeout) * time.Second,
 	}
-	session := &Session{Client: client}
+	s := &Session{Client: client}
 
 	// Initiate rate limit instance
 	if rateLimit != 0 {
-		session.RateLimiter, _ = ratelimit.NewMultiLimiter(context.TODO(), &ratelimit.Options{
+		s.RateLimiter, _ = ratelimit.NewMultiLimiter(context.TODO(), &ratelimit.Options{
 			Key:      "default", // for sources with unknown ratelimits
 			MaxCount: uint(rateLimit),
 			Duration: time.Minute, // from observations refer DefaultRateLimits
 		})
+		s.ratelimitminute = uint(rateLimit)
 	}
-	return session
+	return s
 }

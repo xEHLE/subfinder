@@ -3,7 +3,6 @@ package commoncrawl
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -35,14 +34,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "commoncrawl"
 	s.BaseSource.Default = false
 	s.BaseSource.Recursive = false
@@ -121,7 +114,7 @@ func getSubdomains(searchURL, domain string) core.Task {
 				subdomain = strings.TrimPrefix(subdomain, "25")
 				subdomain = strings.TrimPrefix(subdomain, "2f")
 
-				executor.Result <- core.Result{Source: t.RequestOpts.Source, Type: core.Subdomain, Value: subdomain}
+				executor.Result <- core.Result{Input: domain, Source: t.RequestOpts.Source, Type: core.Subdomain, Value: subdomain}
 			}
 		}
 		return nil

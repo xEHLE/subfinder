@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/projectdiscovery/gologger"
+	"github.com/projectdiscovery/roundrobin"
 	"github.com/projectdiscovery/subfinder/v2/pkg/core"
 	"github.com/projectdiscovery/subfinder/v2/pkg/session"
 )
@@ -24,6 +25,7 @@ type BaseSource struct {
 	CreateTask  func(domain string) core.Task // creates and returns tasks taking for given
 	// internal wg
 	wg sync.WaitGroup
+	rb *roundrobin.RoundRobin
 }
 
 // Source Daemon or background process
@@ -95,13 +97,19 @@ func (s *BaseSource) AddKeys(key ...string) {
 		s.Keys = []string{}
 	}
 	s.Keys = append(s.Keys, key...)
+	if len(s.Keys) != 0 {
+		s.rb, _ = roundrobin.New(s.Keys...)
+	}
 }
 
 // GetKey returns a random key
-func (s *BaseSource) GetRandomKey() string {
+func (s *BaseSource) GetNextKey() string {
 	length := len(s.Keys)
 	if length == 0 {
 		return ""
+	}
+	if s.rb != nil {
+		return s.rb.Next().String()
 	}
 	return s.Keys[rand.Intn(length)]
 }

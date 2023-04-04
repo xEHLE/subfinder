@@ -4,7 +4,6 @@ package github
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -38,14 +37,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "github"
 	s.BaseSource.Default = false
 	s.BaseSource.Recursive = false
@@ -57,7 +50,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.GetRandomKey()
+	randomApiKey := s.GetNextKey()
 
 	headers := map[string]string{
 		"Accept": "application/vnd.github.v3.text-match+json", "Authorization": "token " + randomApiKey,
@@ -134,7 +127,7 @@ func (s *Source) fetchRepoPage(itemHtmlUrl string, domain string) core.Task {
 					continue
 				}
 				for _, subdomain := range executor.Extractor.Get(domain).FindAllString(normalizeContent(line), -1) {
-					executor.Result <- core.Result{Source: "github", Type: core.Subdomain, Value: subdomain}
+					executor.Result <- core.Result{Input: domain, Source: "github", Type: core.Subdomain, Value: subdomain}
 				}
 			}
 		}

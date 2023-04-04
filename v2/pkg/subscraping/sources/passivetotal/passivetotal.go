@@ -3,7 +3,6 @@ package passivetotal
 
 import (
 	"bytes"
-	"context"
 	"net/http"
 	"regexp"
 
@@ -24,14 +23,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "passivetotal"
 	s.BaseSource.Default = true
 	s.BaseSource.Recursive = true
@@ -43,7 +36,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	apiusername, apipassword, _ := subscraping.GetMultiPartKey(s.GetRandomKey())
+	apiusername, apipassword, _ := subscraping.GetMultiPartKey(s.GetNextKey())
 	// Create JSON Get body
 	var request = []byte(`{"query":"` + domain + `"}`)
 	task.RequestOpts = &session.RequestOpts{
@@ -70,7 +63,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 				continue
 			}
 			finalSubdomain := subdomain + "." + domain
-			executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: finalSubdomain}
+			executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: finalSubdomain}
 		}
 		return nil
 	}

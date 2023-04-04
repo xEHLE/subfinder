@@ -2,7 +2,6 @@
 package shodan
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -25,14 +24,8 @@ type dnsdbLookupResponse struct {
 	Error      string   `json:"error"`
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "shodan"
 	s.BaseSource.Default = true
 	s.BaseSource.Recursive = false
@@ -44,7 +37,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.GetRandomKey()
+	randomApiKey := s.GetNextKey()
 	searchURL := fmt.Sprintf("https://api.shodan.io/dns/domain/%s?key=%s", domain, randomApiKey)
 	task.RequestOpts = &session.RequestOpts{
 		Method: http.MethodGet,
@@ -66,7 +59,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 
 		for _, data := range response.Subdomains {
-			executor.Result <- core.Result{
+			executor.Result <- core.Result{Input: domain,
 				Source: s.Name(), Type: core.Subdomain, Value: fmt.Sprintf("%s.%s", data, domain),
 			}
 		}

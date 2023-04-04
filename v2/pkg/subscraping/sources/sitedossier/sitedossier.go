@@ -2,7 +2,6 @@
 package sitedossier
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,14 +19,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "sitedossier"
 	s.BaseSource.Default = false
 	s.BaseSource.Recursive = false
@@ -57,7 +50,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		src := string(body)
 		for _, match := range executor.Extractor.Get(domain).FindAllString(src, -1) {
-			executor.Result <- core.Result{Source: "sitedossier", Type: core.Subdomain, Value: match}
+			executor.Result <- core.Result{Input: domain, Source: "sitedossier", Type: core.Subdomain, Value: match}
 		}
 		match1 := reNext.FindStringSubmatch(src)
 		if len(match1) > 0 {

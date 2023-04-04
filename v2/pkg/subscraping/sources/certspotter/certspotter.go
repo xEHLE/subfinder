@@ -2,7 +2,6 @@
 package certspotter
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
@@ -23,14 +22,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "certspotter"
 	s.BaseSource.Recursive = true
 	s.BaseSource.Default = true
@@ -43,7 +36,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.BaseSource.GetRandomKey()
+	randomApiKey := s.BaseSource.GetNextKey()
 
 	headers := map[string]string{"Authorization": "Bearer " + randomApiKey}
 
@@ -64,7 +57,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		}
 		for _, cert := range response {
 			for _, subdomain := range cert.DNSNames {
-				executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: subdomain}
+				executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: subdomain}
 			}
 		}
 		// recursively check until response len is zero https://sslmate.com/help/reference/ct_search_api_v1

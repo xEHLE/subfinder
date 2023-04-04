@@ -24,7 +24,7 @@ type RequestOpts struct {
 	Body        io.Reader
 	Source      string
 	UID         string             // API Key (used for UID) in ratelimit
-	Cancel      context.CancelFunc // To be used when ratelimit is hit
+	Cancel      context.CancelFunc // cancel source
 	BasicAuth   BasicAuth          // Basic Auth
 }
 

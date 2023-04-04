@@ -10,9 +10,6 @@ var DefaultRateLimits map[string]SourceRateLimit = map[string]SourceRateLimit{
 	"github": {
 		MaxCount: 30, Duration: time.Minute, //https://docs.github.com/en/rest/search?apiVersion=2022-11-28#rate-limit
 	},
-	"gitlab": {
-		MaxCount: 2000, Duration: time.Minute, // https://docs.gitlab.com/ee/user/gitlab_com/index.html#gitlabcom-specific-rate-limits
-	},
 	"fullhunt": {
 		MaxCount: 60, Duration: time.Minute, // https://api-docs.fullhunt.io/#get-domain-details
 	},
@@ -58,12 +55,17 @@ var DefaultRateLimits map[string]SourceRateLimit = map[string]SourceRateLimit{
 	"c99": {
 		MaxCount: math.MaxUint, // possibly unlimited api.c99.nl
 	},
+	// Source Dashboard Might be different for other accounts. taken from Community free account
+	// web: 0.2 actions/second (60.0 per 5 minute interval)
+	// api:lookup: 1.0 actions/second (300.0 per 5 minute interval)
+	// api:search: 0.4 actions/second (120.0 per 5 minute interval)
 	"censys": {
-		MaxCount: 1, Duration: time.Duration(150) * time.Second,
+		MaxCount: 120, Duration: time.Duration(5) * time.Minute,
 	},
 	"crt.sh": {
 		MaxCount: 60, Duration: time.Minute,
 	},
+	// Unstable
 	"dnsdumpster": {
 		MaxCount: 2, Duration: time.Second, // also has a Daily Limit Per IP address
 	},

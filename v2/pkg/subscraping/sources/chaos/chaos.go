@@ -16,14 +16,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "chaos"
 	s.BaseSource.Recursive = false
 	s.BaseSource.Default = true
@@ -41,17 +35,17 @@ func (s *Source) dispatcher(domain string) core.Task {
 
 	// should not reference any variables/methods outside of task
 	task.Override = func(t *core.Task, ctx context.Context, executor *core.Executor) error {
-		randomApiKey := s.BaseSource.GetRandomKey()
+		randomApiKey := s.BaseSource.GetNextKey()
 
 		chaosClient := chaos.New(randomApiKey)
 		for result := range chaosClient.GetSubdomains(&chaos.SubdomainsRequest{
 			Domain: t.Domain,
 		}) {
 			if result.Error != nil {
-				executor.Result <- core.Result{Source: t.RequestOpts.Source, Type: core.Error, Error: result.Error}
+				executor.Result <- core.Result{Input: domain, Source: t.RequestOpts.Source, Type: core.Error, Error: result.Error}
 				break
 			}
-			executor.Result <- core.Result{
+			executor.Result <- core.Result{Input: domain,
 				Source: t.RequestOpts.Source, Type: core.Subdomain, Value: fmt.Sprintf("%s.%s", result.Subdomain, domain),
 			}
 		}

@@ -2,7 +2,6 @@
 package securitytrails
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -23,14 +22,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "securitytrails"
 	s.BaseSource.Default = true
 	s.BaseSource.Recursive = true
@@ -42,7 +35,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 	task := core.Task{
 		Domain: domain,
 	}
-	randomApiKey := s.GetRandomKey()
+	randomApiKey := s.GetNextKey()
 	task.RequestOpts = &session.RequestOpts{
 		Method:  http.MethodGet,
 		URL:     fmt.Sprintf("https://api.securitytrails.com/v1/domain/%s/subdomains", domain),
@@ -63,7 +56,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			} else {
 				subdomain = subdomain + "." + domain
 			}
-			executor.Result <- core.Result{Source: s.Name(), Type: core.Subdomain, Value: subdomain}
+			executor.Result <- core.Result{Input: domain, Source: s.Name(), Type: core.Subdomain, Value: subdomain}
 		}
 		return nil
 	}

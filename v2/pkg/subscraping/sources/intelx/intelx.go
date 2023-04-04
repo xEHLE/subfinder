@@ -3,7 +3,6 @@ package intelx
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -44,14 +43,8 @@ type Source struct {
 	subscraping.BaseSource
 }
 
-// Source Daemon
-func (s *Source) Daemon(ctx context.Context, e *session.Extractor, input <-chan string, output chan<- core.Task) {
-	s.init()
-	s.BaseSource.Daemon(ctx, e, input, output)
-}
-
 // inits the source before passing to daemon
-func (s *Source) init() {
+func (s *Source) Init() {
 	s.BaseSource.SourceName = "intelx"
 	s.BaseSource.Default = true
 	s.BaseSource.Recursive = false
@@ -64,7 +57,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 		Domain: domain,
 	}
 
-	apihost, apikey, _ := subscraping.GetMultiPartKey(s.GetRandomKey())
+	apihost, apikey, _ := subscraping.GetMultiPartKey(s.GetNextKey())
 
 	searchURL := fmt.Sprintf("https://%s/phonebook/search?k=%s", apihost, apikey)
 	reqBody := requestBody{
@@ -99,7 +92,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			return nil
 		}
 
-		apihost, apikey, _ := subscraping.GetMultiPartKey(s.GetRandomKey())
+		apihost, apikey, _ := subscraping.GetMultiPartKey(s.GetNextKey())
 		// fetch responses of seach results
 		resultsURL := fmt.Sprintf("https://%s/phonebook/search/result?k=%s&id=%s&limit=10000", apihost, apikey, response.ID)
 		tx := core.Task{
@@ -122,7 +115,7 @@ func (s *Source) dispatcher(domain string) core.Task {
 			}
 			// status = response.Status
 			for _, hostname := range response.Selectors {
-				executor.Result <- core.Result{
+				executor.Result <- core.Result{Input: domain,
 					Source: "intelx", Type: core.Subdomain, Value: hostname.Selectvalue,
 				}
 			}
