@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"io/ioutil"
 
 	jsoniter "github.com/json-iterator/go"
 
@@ -59,12 +60,35 @@ func (s *Source) Run(ctx context.Context, domain string, session *subscraping.Se
 			var resp *http.Response
 			var err error
 
+			var tenKflag = false;
+
 			if scrollId == "" {
 				var requestBody = []byte(fmt.Sprintf(`{"query":"apex_domain='%s'"}`, domain))
 				resp, err = session.Post(ctx, "https://api.securitytrails.com/v1/domains/list?include_ips=false&scroll=true", "",
 					headers, bytes.NewReader(requestBody))
+
+				// Check for record_count in the response body
+				if err == nil {
+					var tempResponse map[string]interface{}
+					err = jsoniter.NewDecoder(resp.Body).Decode(&tempResponse)
+					if err == nil {
+						if recordCount, ok := tempResponse["record_count"].(float64); ok {
+							if recordCount < 10000 {
+								tenKflag = true;
+							}
+						}
+					}
+
+					// Rewind the response body for further processing
+					resp.Body = ioutil.NopCloser(bytes.NewReader(tempResponse))
+				}
+
 			} else {
 				resp, err = session.Get(ctx, fmt.Sprintf("https://api.securitytrails.com/v1/scroll/%s", scrollId), "", headers)
+			}
+
+			if err != nil && tenKflag == true {
+				resp, err = session.Get(ctx, fmt.Sprintf("https://api.securitytrails.com/v1/domain/%s/subdomains", domain), "", headers)
 			}
 
 			if err != nil && ptr.Safe(resp).StatusCode == 403 {
